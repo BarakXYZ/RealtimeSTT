@@ -1,10 +1,8 @@
-# RealtimeSTT
-[![PyPI](https://img.shields.io/pypi/v/RealtimeSTT)](https://pypi.org/project/RealtimeSTT/)
-[![Downloads](https://static.pepy.tech/badge/RealtimeSTT)](https://www.pepy.tech/projects/realtimestt)
-[![GitHub release](https://img.shields.io/github/release/KoljaB/RealtimeSTT.svg)](https://GitHub.com/KoljaB/RealtimeSTT/releases/)
-[![GitHub commits](https://badgen.net/github/commits/KoljaB/RealtimeSTT)](https://GitHub.com/Naereen/KoljaB/RealtimeSTT/commit/)
-[![GitHub forks](https://img.shields.io/github/forks/KoljaB/RealtimeSTT.svg?style=social&label=Fork&maxAge=2592000)](https://GitHub.com/KoljaB/RealtimeSTT/network/)
-[![GitHub stars](https://img.shields.io/github/stars/KoljaB/RealtimeSTT.svg?style=social&label=Star&maxAge=2592000)](https://GitHub.com/KoljaB/RealtimeSTT/stargazers/)
+# RealtimeSTT XYZ
+[![GitHub release](https://img.shields.io/github/v/release/BarakXYZ/RealtimeSTT)](https://github.com/BarakXYZ/RealtimeSTT/releases)
+[![GitHub commits](https://badgen.net/github/commits/BarakXYZ/RealtimeSTT)](https://github.com/BarakXYZ/RealtimeSTT/commits)
+[![GitHub forks](https://img.shields.io/github/forks/BarakXYZ/RealtimeSTT.svg?style=social&label=Fork&maxAge=2592000)](https://github.com/BarakXYZ/RealtimeSTT/network/)
+[![GitHub stars](https://img.shields.io/github/stars/BarakXYZ/RealtimeSTT.svg?style=social&label=Star&maxAge=2592000)](https://github.com/BarakXYZ/RealtimeSTT/stargazers/)
 
 *Easy-to-use, low-latency speech-to-text library for realtime applications*
 
@@ -36,9 +34,9 @@ https://github.com/user-attachments/assets/797e6552-27cd-41b1-a7f3-e5cbc72094f5
 
 ### Updates
 
-Latest Version: v0.3.104
+Latest Version: v0.3.104.post1
 
-See [release history](https://github.com/KoljaB/RealtimeSTT/releases).
+See [release history](https://github.com/BarakXYZ/RealtimeSTT/releases).
 
 > **Hint:** *Since we use the `multiprocessing` module now, ensure to include the `if __name__ == '__main__':` protection in your code to prevent unexpected behavior, especially on platforms like Windows. For a detailed explanation on why this is important, visit the [official Python documentation on `multiprocessing`](https://docs.python.org/3/library/multiprocessing.html#multiprocessing-programming).*
 
@@ -105,10 +103,22 @@ This library uses:
 ## Installation
 
 ```bash
-pip install RealtimeSTT
+pip install realtimestt-xyz
 ```
 
 This will install all the necessary dependencies, including a **CPU support only** version of PyTorch.
+
+`realtimestt-xyz` keeps the `RealtimeSTT` import path intact:
+
+```python
+from RealtimeSTT import AudioToTextRecorder
+```
+
+### Release Channels
+
+- Tagged releases build immutable wheels and an sdist through GitHub Actions.
+- GitHub Releases are the canonical fallback artifact source.
+- PyPI publishing is supported through Trusted Publishing once the repository is configured as a trusted publisher for `realtimestt-xyz`.
 
 RealtimeSTT now supports two ASR backends through the same recorder API:
 

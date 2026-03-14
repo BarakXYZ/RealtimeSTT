@@ -115,7 +115,7 @@ check_and_install_packages([
     {
         'module_name': 'RealtimeSTT',                 # Import module
         'attribute': 'AudioToTextRecorder',           # Specific class to check
-        'install_name': 'RealtimeSTT',                # Package name for pip install
+        'install_name': 'realtimestt-xyz',            # Package name for pip install
     },
     {
         'module_name': 'websockets',                  # Import module

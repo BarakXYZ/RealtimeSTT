@@ -30,7 +30,7 @@
 3. Install dependencies:
    ```bash
    python -m pip install --upgrade pip
-   python -m pip install RealtimeSTT
+   python -m pip install realtimestt-xyz
    python -m pip install -U torch torchaudio --index-url https://download.pytorch.org/whl/cu121
    ```
    The PyTorch installation command includes CUDA 12.1 support. Adjust if a different version is required.
