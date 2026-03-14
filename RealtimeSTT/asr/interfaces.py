@@ -48,6 +48,7 @@ class ASRBackendConfig:
     whisper_cpp_acceleration: str = "auto"
     whisper_cpp_model_path: Optional[str] = None
     whisper_cpp_coreml_encoder_path: Optional[str] = None
+    whisper_cpp_auto_generate_coreml: bool = True
     whisper_cpp_openvino_encoder_path: Optional[str] = None
     whisper_cpp_openvino_device: str = "CPU"
     whisper_cpp_openvino_cache_dir: Optional[str] = None

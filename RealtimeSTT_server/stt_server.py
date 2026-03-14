@@ -553,6 +553,8 @@ def parse_arguments():
                         help='Preferred whisper.cpp acceleration mode. Default is auto.')
     parser.add_argument('--whisper_cpp_coreml_encoder_path', type=str, default=None,
                         help='Explicit path to a whisper.cpp Core ML encoder bundle.')
+    parser.add_argument('--whisper_cpp_auto_generate_coreml', type=lambda value: value.lower() == 'true', default=True,
+                        help='Automatically generate whisper.cpp Core ML encoder bundles on Apple Silicon when possible. Default is true.')
     parser.add_argument('--whisper_cpp_openvino_encoder_path', type=str, default=None,
                         help='Explicit path to a whisper.cpp OpenVINO encoder XML.')
     parser.add_argument('--whisper_cpp_openvino_device', type=str, default='CPU',
@@ -888,6 +890,7 @@ async def main_async():
         'whisper_cpp_realtime_threads': args.whisper_cpp_realtime_threads,
         'whisper_cpp_acceleration': args.whisper_cpp_acceleration,
         'whisper_cpp_coreml_encoder_path': args.whisper_cpp_coreml_encoder_path,
+        'whisper_cpp_auto_generate_coreml': args.whisper_cpp_auto_generate_coreml,
         'whisper_cpp_openvino_encoder_path': args.whisper_cpp_openvino_encoder_path,
         'whisper_cpp_openvino_device': args.whisper_cpp_openvino_device,
         'whisper_cpp_openvino_cache_dir': args.whisper_cpp_openvino_cache_dir,

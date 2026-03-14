@@ -36,7 +36,17 @@ class WhisperCppBackend:
         self.config = config
         model_identifier = config.whisper_cpp_model_path or config.model_id
         self.model_path = resolve_model_identifier(model_identifier, config.download_root, backend="whisper.cpp")
-        expected_coreml_path = resolve_coreml_encoder_path(self.model_path, None)
+        should_auto_generate_coreml = (
+            running_on_apple_silicon()
+            and config.whisper_cpp_auto_generate_coreml
+            and config.whisper_cpp_acceleration in {"auto", "coreml"}
+        )
+        expected_coreml_path = resolve_coreml_encoder_path(
+            self.model_path,
+            config.whisper_cpp_coreml_encoder_path,
+            model_identifier=model_identifier,
+            auto_generate=should_auto_generate_coreml,
+        )
         if config.whisper_cpp_coreml_encoder_path and config.whisper_cpp_coreml_encoder_path != expected_coreml_path:
             raise ValueError(
                 "whisper.cpp Core ML currently relies on the official co-located "

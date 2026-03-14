@@ -180,6 +180,7 @@ class AudioToTextRecorderClient:
                  whisper_cpp_realtime_threads: Optional[int] = None,
                  whisper_cpp_acceleration: str = "auto",
                  whisper_cpp_coreml_encoder_path: Optional[str] = None,
+                 whisper_cpp_auto_generate_coreml: bool = True,
                  whisper_cpp_openvino_encoder_path: Optional[str] = None,
                  whisper_cpp_openvino_device: str = "CPU",
                  whisper_cpp_openvino_cache_dir: Optional[str] = None,
@@ -268,6 +269,7 @@ class AudioToTextRecorderClient:
         self.whisper_cpp_realtime_threads = whisper_cpp_realtime_threads
         self.whisper_cpp_acceleration = whisper_cpp_acceleration
         self.whisper_cpp_coreml_encoder_path = whisper_cpp_coreml_encoder_path
+        self.whisper_cpp_auto_generate_coreml = whisper_cpp_auto_generate_coreml
         self.whisper_cpp_openvino_encoder_path = whisper_cpp_openvino_encoder_path
         self.whisper_cpp_openvino_device = whisper_cpp_openvino_device
         self.whisper_cpp_openvino_cache_dir = whisper_cpp_openvino_cache_dir
@@ -471,6 +473,7 @@ class AudioToTextRecorderClient:
             args += ['--whisper_cpp_acceleration', self.whisper_cpp_acceleration]
         if self.whisper_cpp_coreml_encoder_path:
             args += ['--whisper_cpp_coreml_encoder_path', self.whisper_cpp_coreml_encoder_path]
+        args += ['--whisper_cpp_auto_generate_coreml', str(self.whisper_cpp_auto_generate_coreml).lower()]
         if self.whisper_cpp_openvino_encoder_path:
             args += ['--whisper_cpp_openvino_encoder_path', self.whisper_cpp_openvino_encoder_path]
         if self.whisper_cpp_openvino_device:

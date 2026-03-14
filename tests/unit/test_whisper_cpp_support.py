@@ -101,6 +101,7 @@ def _install_client_dependency_stubs() -> None:
 _install_client_dependency_stubs()
 audio_recorder_client = importlib.import_module("RealtimeSTT.audio_recorder_client")
 model_resolver = importlib.import_module("RealtimeSTT.asr.model_resolver")
+whisper_cpp_coreml = importlib.import_module("RealtimeSTT.asr.whisper_cpp_coreml")
 
 
 class WhisperCppSupportTests(unittest.TestCase):
@@ -115,6 +116,7 @@ class WhisperCppSupportTests(unittest.TestCase):
         client.whisper_cpp_realtime_threads = 4
         client.whisper_cpp_acceleration = "metal"
         client.whisper_cpp_coreml_encoder_path = None
+        client.whisper_cpp_auto_generate_coreml = True
         client.whisper_cpp_openvino_encoder_path = None
         client.whisper_cpp_openvino_device = "CPU"
         client.whisper_cpp_openvino_cache_dir = None
@@ -177,6 +179,56 @@ class WhisperCppSupportTests(unittest.TestCase):
 
             self.assertEqual(resolved, str(model_path))
             self.assertTrue(model_path.exists())
+
+    def test_resolve_coreml_encoder_path_schedules_generation_for_supported_model(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_path = Path(tmpdir) / "ggml-base.en.bin"
+            model_path.write_bytes(b"model")
+
+            with patch("RealtimeSTT.asr.whisper_cpp_coreml.schedule_whisper_cpp_coreml_generation") as schedule:
+                resolved = model_resolver.resolve_coreml_encoder_path(
+                    str(model_path),
+                    model_identifier="base.en",
+                    auto_generate=True,
+                )
+
+            self.assertIsNone(resolved)
+            schedule.assert_called_once()
+            self.assertEqual(schedule.call_args.kwargs["model_identifier"], "base.en")
+            self.assertEqual(schedule.call_args.kwargs["model_path"], str(model_path))
+
+    def test_generate_coreml_encoder_sync_creates_target_bundle(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_path = Path(tmpdir) / "ggml-base.en.bin"
+            model_path.write_bytes(b"model")
+            target_path = Path(tmpdir) / "ggml-base.en-encoder.mlmodelc"
+            convert_script = Path(tmpdir) / "convert-whisper-to-coreml.py"
+            convert_script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
+            request = whisper_cpp_coreml.WhisperCppCoreMLRequest(
+                model_name="base.en",
+                model_path=str(model_path),
+                target_path=str(target_path),
+            )
+
+            def fake_run(command, cwd):
+                cwd_path = Path(cwd)
+                if command[0] == "xcrun":
+                    compiled = cwd_path / "compiled" / "coreml-encoder-base.en.mlmodelc"
+                    compiled.mkdir(parents=True, exist_ok=True)
+                    (compiled / "manifest.json").write_text("{}", encoding="utf-8")
+                    return
+                mlpackage = cwd_path / "models" / "coreml-encoder-base.en.mlpackage"
+                mlpackage.mkdir(parents=True, exist_ok=True)
+                (mlpackage / "Manifest.json").write_text("{}", encoding="utf-8")
+
+            with patch("RealtimeSTT.asr.whisper_cpp_coreml._convert_script_path", return_value=convert_script):
+                with patch("RealtimeSTT.asr.whisper_cpp_coreml._missing_runtime_dependencies", return_value=[]):
+                    with patch("RealtimeSTT.asr.whisper_cpp_coreml.shutil.which", return_value="/usr/bin/xcrun"):
+                        with patch("RealtimeSTT.asr.whisper_cpp_coreml._run_subprocess", side_effect=fake_run):
+                            whisper_cpp_coreml._generate_coreml_encoder_sync(request)
+
+            self.assertTrue(target_path.exists())
+            self.assertTrue((target_path / "manifest.json").exists())
 
 
 if __name__ == "__main__":

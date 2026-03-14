@@ -115,14 +115,32 @@ def resolve_model_identifier(model_id: str, download_root: str | None = None, ba
     return str(model_path)
 
 
-def resolve_coreml_encoder_path(model_path: str, explicit_path: str | None = None) -> str | None:
+def resolve_coreml_encoder_path(
+    model_path: str,
+    explicit_path: str | None = None,
+    model_identifier: str | None = None,
+    auto_generate: bool = False,
+) -> str | None:
     if explicit_path:
-        return explicit_path
+        explicit = Path(explicit_path).expanduser()
+        if explicit.exists():
+            return str(explicit)
+        raise FileNotFoundError(f"Explicit whisper.cpp Core ML encoder path does not exist: {explicit}")
 
     candidate = Path(model_path).with_suffix("")
     candidate = candidate.parent / f"{candidate.name}-encoder.mlmodelc"
     if candidate.exists():
         return str(candidate)
+
+    if auto_generate:
+        from .whisper_cpp_coreml import schedule_whisper_cpp_coreml_generation
+
+        schedule_whisper_cpp_coreml_generation(
+            model_identifier=model_identifier,
+            model_path=model_path,
+            target_path=str(candidate),
+        )
+
     return None
 
 

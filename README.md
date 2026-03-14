@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/797e6552-27cd-41b1-a7f3-e5cbc72094f5
 
 ### Updates
 
-Latest Version: v0.3.104.post3
+Latest Version: v0.3.104.post4
 
 See [release history](https://github.com/BarakXYZ/RealtimeSTT/releases).
 
@@ -124,6 +124,8 @@ RealtimeSTT now supports two ASR backends through the same recorder API:
 
 - `backend="faster-whisper"` keeps the existing CTranslate2-based path and remains the default.
 - `backend="whisper.cpp"` uses the native `whisper.cpp` C API and is the recommended option for Apple Silicon users who want Metal/Core ML acceleration.
+
+On Apple Silicon, `whisper.cpp` can now auto-generate the official Core ML encoder bundle in the background for supported model aliases when `whisper_cpp_auto_generate_coreml=True` (the default). Generation follows the official `whisper.cpp` conversion flow, requires `xcrun` plus the Python dependencies from `third_party/whisper.cpp/models/requirements-coreml.txt`, and does not block initial transcription startup. Until the bundle exists, `whisper.cpp` falls back to Metal or CPU.
 
 Although it is possible to run RealtimeSTT with a CPU installation only (use a small model like "tiny" or "base" in this case) you will get way better experience using CUDA (please scroll down).
 
