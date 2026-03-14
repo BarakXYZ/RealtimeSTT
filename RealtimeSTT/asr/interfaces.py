@@ -1,0 +1,55 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional, Protocol
+
+import numpy as np
+
+
+@dataclass(frozen=True)
+class TranscriptSegment:
+    text: str
+    t0_ms: Optional[int] = None
+    t1_ms: Optional[int] = None
+
+
+@dataclass(frozen=True)
+class TranscriptMetadata:
+    language: Optional[str]
+    language_probability: float
+    backend_name: str
+    model_id: str
+    timings: Dict[str, float] = field(default_factory=dict)
+
+
+@dataclass(frozen=True)
+class TranscriptResult:
+    text: str
+    segments: List[TranscriptSegment]
+    metadata: TranscriptMetadata
+
+
+@dataclass(frozen=True)
+class ASRBackendConfig:
+    model_id: str
+    backend: str = "faster-whisper"
+    download_root: Optional[str] = None
+    language: str = ""
+    device: str = "cpu"
+    compute_type: str = "default"
+    gpu_device_index: int | list[int] = 0
+    beam_size: int = 5
+    initial_prompt: Optional[str] = None
+    suppress_tokens: Optional[list[int]] = None
+    batch_size: int = 0
+    faster_whisper_vad_filter: bool = False
+    normalize_audio: bool = False
+
+
+class ASRBackend(Protocol):
+    def warmup(self) -> TranscriptResult:
+        ...
+
+    def transcribe(self, audio: np.ndarray, language: Optional[str] = None, use_prompt: bool = True) -> TranscriptResult:
+        ...
+

@@ -26,7 +26,6 @@ Author: Kolja Beigel
 
 """
 
-from faster_whisper import WhisperModel, BatchedInferencePipeline
 from typing import Iterable, List, Optional, Union
 from openwakeword.model import Model
 import torch.multiprocessing as mp
@@ -35,8 +34,6 @@ import signal as system_signal
 from ctypes import c_bool
 from scipy import signal
 from .safepipe import SafePipe
-import soundfile as sf
-import faster_whisper
 import openwakeword
 import collections
 import numpy as np
@@ -57,6 +54,8 @@ import copy
 import os
 import re
 import gc
+
+from .asr import ASRBackendConfig, TranscriptResult, create_asr_backend
 
 # Named logger for this module.
 logger = logging.getLogger("realtimestt")
@@ -112,6 +111,21 @@ class TranscriptionWorker:
         self.faster_whisper_vad_filter = faster_whisper_vad_filter
         self.normalize_audio = normalize_audio
         self.queue = queue.Queue()
+        self.backend = create_asr_backend(
+            ASRBackendConfig(
+                model_id=model_path,
+                download_root=download_root,
+                device=device,
+                compute_type=compute_type,
+                gpu_device_index=gpu_device_index,
+                beam_size=beam_size,
+                initial_prompt=initial_prompt,
+                suppress_tokens=suppress_tokens,
+                batch_size=batch_size,
+                faster_whisper_vad_filter=faster_whisper_vad_filter,
+                normalize_audio=normalize_audio,
+            )
+        )
 
     def custom_print(self, *args, **kwargs):
         message = ' '.join(map(str, args))
@@ -139,34 +153,16 @@ class TranscriptionWorker:
              system_signal.signal(system_signal.SIGINT, system_signal.SIG_IGN)
              __builtins__['print'] = self.custom_print
 
-        logging.info(f"Initializing faster_whisper main transcription model {self.model_path}")
+        logging.info(f"Initializing transcription backend for model {self.model_path}")
 
         try:
-            model = faster_whisper.WhisperModel(
-                model_size_or_path=self.model_path,
-                device=self.device,
-                compute_type=self.compute_type,
-                device_index=self.gpu_device_index,
-                download_root=self.download_root,
-            )
-            # Create a short dummy audio array, for example 1 second of silence at 16 kHz
-            if self.batch_size > 0:
-                model = BatchedInferencePipeline(model=model)
-
-            # Run a warm-up transcription
-            current_dir = os.path.dirname(os.path.realpath(__file__))
-            warmup_audio_path = os.path.join(
-                current_dir, "warmup_audio.wav"
-            )
-            warmup_audio_data, _ = sf.read(warmup_audio_path, dtype="float32")
-            segments, info = model.transcribe(warmup_audio_data, language="en", beam_size=1)
-            model_warmup_transcription = " ".join(segment.text for segment in segments)
+            self.backend.warmup()
         except Exception as e:
-            logging.exception(f"Error initializing main faster_whisper transcription model: {e}")
+            logging.exception(f"Error initializing main transcription backend: {e}")
             raise
 
         self.ready_event.set()
-        logging.debug("Faster_whisper main speech to text transcription model initialized successfully")
+        logging.debug("Main speech to text transcription backend initialized successfully")
 
         # Start the polling thread
         polling_thread = threading.Thread(target=self.poll_connection)
@@ -178,46 +174,22 @@ class TranscriptionWorker:
                     audio, language, use_prompt = self.queue.get(timeout=0.1)
                     try:
                         logging.debug(f"Transcribing audio with language {language}")
-                        start_t = time.time()
-
-                        # normalize audio to -0.95 dBFS
-                        if audio is not None and audio .size > 0:
-                            if self.normalize_audio:
-                                peak = np.max(np.abs(audio))
-                                if peak > 0:
-                                    audio = (audio / peak) * 0.95
-                        else:
+                        if audio is None or audio.size == 0:
                             logging.error("Received None audio for transcription")
                             self.conn.send(('error', "Received None audio for transcription"))
                             continue
 
-                        prompt = None
-                        if use_prompt:
-                            prompt = self.initial_prompt if self.initial_prompt else None
-
-                        if self.batch_size > 0:
-                            segments, info = model.transcribe(
-                                audio,
-                                language=language if language else None,
-                                beam_size=self.beam_size,
-                                initial_prompt=prompt,
-                                suppress_tokens=self.suppress_tokens,
-                                batch_size=self.batch_size, 
-                                vad_filter=self.faster_whisper_vad_filter
-                            )
-                        else:
-                            segments, info = model.transcribe(
-                                audio,
-                                language=language if language else None,
-                                beam_size=self.beam_size,
-                                initial_prompt=prompt,
-                                suppress_tokens=self.suppress_tokens,
-                                vad_filter=self.faster_whisper_vad_filter
-                            )
-                        elapsed = time.time() - start_t
-                        transcription = " ".join(seg.text for seg in segments).strip()
-                        logging.debug(f"Final text detected with main model: {transcription} in {elapsed:.4f}s")
-                        self.conn.send(('success', (transcription, info)))
+                        result = self.backend.transcribe(
+                            audio,
+                            language=language if language else None,
+                            use_prompt=use_prompt,
+                        )
+                        logging.debug(
+                            "Final text detected with main model: %s in %.4fs",
+                            result.text,
+                            result.metadata.timings.get("transcription_s", 0.0),
+                        )
+                        self.conn.send(('success', result))
                     except Exception as e:
                         logging.error(f"General error in transcription: {e}", exc_info=True)
                         self.conn.send(('error', str(e)))
@@ -618,6 +590,7 @@ class AudioToTextRecorder:
             download_root = None
         self.download_root = download_root
         self.realtime_model_type = realtime_model_type
+        self.realtime_asr_backend = None
         self.realtime_processing_pause = realtime_processing_pause
         self.init_realtime_after_seconds = init_realtime_after_seconds
         self.on_realtime_transcription_update = (
@@ -784,39 +757,34 @@ class AudioToTextRecorder:
         # Initialize the realtime transcription model
         if self.enable_realtime_transcription and not self.use_main_model_for_realtime:
             try:
-                logger.info("Initializing faster_whisper realtime "
+                logger.info("Initializing realtime transcription backend "
                              f"transcription model {self.realtime_model_type}, "
                              f"default device: {self.device}, "
                              f"compute type: {self.compute_type}, "
                              f"device index: {self.gpu_device_index}, "
                              f"download root: {self.download_root}"
                              )
-                self.realtime_model_type = faster_whisper.WhisperModel(
-                    model_size_or_path=self.realtime_model_type,
-                    device=self.device,
-                    compute_type=self.compute_type,
-                    device_index=self.gpu_device_index,
-                    download_root=self.download_root,
+                self.realtime_asr_backend = create_asr_backend(
+                    ASRBackendConfig(
+                        model_id=self.realtime_model_type,
+                        download_root=self.download_root,
+                        device=self.device,
+                        compute_type=self.compute_type,
+                        gpu_device_index=self.gpu_device_index,
+                        beam_size=self.beam_size_realtime,
+                        initial_prompt=self.initial_prompt_realtime,
+                        suppress_tokens=self.suppress_tokens,
+                        batch_size=self.realtime_batch_size,
+                        faster_whisper_vad_filter=self.faster_whisper_vad_filter,
+                        normalize_audio=self.normalize_audio,
+                    )
                 )
-                if self.realtime_batch_size > 0:
-                    self.realtime_model_type = BatchedInferencePipeline(model=self.realtime_model_type)
-
-                # Run a warm-up transcription
-                current_dir = os.path.dirname(os.path.realpath(__file__))
-                warmup_audio_path = os.path.join(
-                    current_dir, "warmup_audio.wav"
-                )
-                warmup_audio_data, _ = sf.read(warmup_audio_path, dtype="float32")
-                segments, info = self.realtime_model_type.transcribe(warmup_audio_data, language="en", beam_size=1)
-                model_warmup_transcription = " ".join(segment.text for segment in segments)
+                self.realtime_asr_backend.warmup()
             except Exception as e:
-                logger.exception("Error initializing faster_whisper "
-                                  f"realtime transcription model: {e}"
-                                  )
+                logger.exception("Error initializing realtime transcription backend: %s", e)
                 raise
 
-            logger.debug("Faster_whisper realtime speech to text "
-                          "transcription model initialized successfully")
+            logger.debug("Realtime speech to text transcription backend initialized successfully")
 
         # Setup wake word detection
         if wake_words or wakeword_backend in {'oww', 'openwakeword', 'openwakewords', 'pvp', 'pvporcupine'}:
@@ -1529,12 +1497,26 @@ class AudioToTextRecorder:
                 self.allowed_to_early_transcribe = True
                 self._set_state("inactive")
                 if status == 'success':
-                    segments, info = result
-                    self.detected_language = info.language if info.language_probability > 0 else None
-                    self.detected_language_probability = info.language_probability
+                    transcript_result = result
+                    if not isinstance(transcript_result, TranscriptResult):
+                        segments, info = result
+                        transcript_result = TranscriptResult(
+                            text=segments,
+                            segments=[],
+                            metadata=type(
+                                "TranscriptMetadataCompat",
+                                (),
+                                {
+                                    "language": info.language if info.language_probability > 0 else None,
+                                    "language_probability": info.language_probability,
+                                },
+                            )(),
+                        )
+                    self.detected_language = transcript_result.metadata.language
+                    self.detected_language_probability = transcript_result.metadata.language_probability
                     self.last_transcription_bytes = copy.deepcopy(audio_bytes)
                     self.last_transcription_bytes_b64 = base64.b64encode(self.last_transcription_bytes.tobytes()).decode('utf-8')
-                    transcription = self._preprocess_output(segments)
+                    transcription = self._preprocess_output(transcript_result.text)
                     end_time = time.time()  # End timing
                     transcription_time = end_time - start_time
 
@@ -1874,9 +1856,9 @@ class AudioToTextRecorder:
                 self.realtime_thread.join()
 
             if self.enable_realtime_transcription:
-                if self.realtime_model_type:
-                    del self.realtime_model_type
-                    self.realtime_model_type = None
+                if self.realtime_asr_backend:
+                    del self.realtime_asr_backend
+                    self.realtime_asr_backend = None
             gc.collect()
 
     def _recording_worker(self):
@@ -2373,10 +2355,24 @@ class AudioToTextRecorder:
                                     logger.debug("Receive from realtime worker after transcription request to main model")
                                     status, result = self.parent_transcription_pipe.recv()
                                     if status == 'success':
-                                        segments, info = result
-                                        self.detected_realtime_language = info.language if info.language_probability > 0 else None
-                                        self.detected_realtime_language_probability = info.language_probability
-                                        realtime_text = segments
+                                        transcript_result = result
+                                        if not isinstance(transcript_result, TranscriptResult):
+                                            segments, info = result
+                                            transcript_result = TranscriptResult(
+                                                text=segments,
+                                                segments=[],
+                                                metadata=type(
+                                                    "TranscriptMetadataCompat",
+                                                    (),
+                                                    {
+                                                        "language": info.language if info.language_probability > 0 else None,
+                                                        "language_probability": info.language_probability,
+                                                    },
+                                                )(),
+                                            )
+                                        self.detected_realtime_language = transcript_result.metadata.language
+                                        self.detected_realtime_language_probability = transcript_result.metadata.language_probability
+                                        realtime_text = transcript_result.text
                                         logger.debug(f"Realtime text detected with main model: {realtime_text}")
                                     else:
                                         logger.error(f"Realtime transcription error: {result}")
@@ -2389,38 +2385,14 @@ class AudioToTextRecorder:
                                 continue
                     else:
                         # Perform transcription and assemble the text
-                        if self.normalize_audio:
-                            # normalize audio to -0.95 dBFS
-                            if audio_array is not None and audio_array.size > 0:
-                                peak = np.max(np.abs(audio_array))
-                                if peak > 0:
-                                    audio_array = (audio_array / peak) * 0.95
-
-                        if self.realtime_batch_size > 0:
-                            segments, info = self.realtime_model_type.transcribe(
-                                audio_array,
-                                language=self.language if self.language else None,
-                                beam_size=self.beam_size_realtime,
-                                initial_prompt=self.initial_prompt_realtime,
-                                suppress_tokens=self.suppress_tokens,
-                                batch_size=self.realtime_batch_size,
-                                vad_filter=self.faster_whisper_vad_filter
-                            )
-                        else:
-                            segments, info = self.realtime_model_type.transcribe(
-                                audio_array,
-                                language=self.language if self.language else None,
-                                beam_size=self.beam_size_realtime,
-                                initial_prompt=self.initial_prompt_realtime,
-                                suppress_tokens=self.suppress_tokens,
-                                vad_filter=self.faster_whisper_vad_filter
-                            )
-
-                        self.detected_realtime_language = info.language if info.language_probability > 0 else None
-                        self.detected_realtime_language_probability = info.language_probability
-                        realtime_text = " ".join(
-                            seg.text for seg in segments
+                        transcript_result = self.realtime_asr_backend.transcribe(
+                            audio_array,
+                            language=self.language if self.language else None,
+                            use_prompt=True,
                         )
+                        self.detected_realtime_language = transcript_result.metadata.language
+                        self.detected_realtime_language_probability = transcript_result.metadata.language_probability
+                        realtime_text = transcript_result.text
                         logger.debug(f"Realtime text detected: {realtime_text}")
 
                     # double check recording state
