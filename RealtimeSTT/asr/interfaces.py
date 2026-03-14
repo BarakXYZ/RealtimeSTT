@@ -44,6 +44,15 @@ class ASRBackendConfig:
     batch_size: int = 0
     faster_whisper_vad_filter: bool = False
     normalize_audio: bool = False
+    whisper_cpp_threads: Optional[int] = None
+    whisper_cpp_acceleration: str = "auto"
+    whisper_cpp_model_path: Optional[str] = None
+    whisper_cpp_coreml_encoder_path: Optional[str] = None
+    whisper_cpp_openvino_encoder_path: Optional[str] = None
+    whisper_cpp_openvino_device: str = "CPU"
+    whisper_cpp_openvino_cache_dir: Optional[str] = None
+    whisper_cpp_no_context: bool = True
+    whisper_cpp_single_segment: bool = False
 
 
 class ASRBackend(Protocol):
@@ -52,4 +61,3 @@ class ASRBackend(Protocol):
 
     def transcribe(self, audio: np.ndarray, language: Optional[str] = None, use_prompt: bool = True) -> TranscriptResult:
         ...
-

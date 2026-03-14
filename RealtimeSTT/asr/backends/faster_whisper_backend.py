@@ -25,7 +25,7 @@ def _segment_time_to_ms(value: object) -> int | None:
 class FasterWhisperBackend:
     def __init__(self, config: ASRBackendConfig):
         self.config = config
-        self.model_path = resolve_model_identifier(config.model_id, config.download_root)
+        self.model_path = resolve_model_identifier(config.model_id, config.download_root, backend="faster-whisper")
         self._model = None
 
     def _load_model(self):

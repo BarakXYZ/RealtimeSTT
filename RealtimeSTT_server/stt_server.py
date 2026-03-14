@@ -519,6 +519,10 @@ def parse_arguments():
     parser.add_argument('--compute_type', type=str, default='default',
                         help='Type of computation to use. See https://opennmt.net/CTranslate2/quantization.html')
 
+    parser.add_argument('--backend', type=str, default='faster-whisper',
+                        choices=['faster-whisper', 'whisper.cpp'],
+                        help='Speech-to-text backend to use. Default is faster-whisper.')
+
     parser.add_argument('--gpu_device_index', type=int, default=0,
                         help='Index of the GPU device to use. Default is None.')
     
@@ -535,6 +539,30 @@ def parse_arguments():
 
     parser.add_argument('--faster_whisper_vad_filter', action='store_true',
                         help='Enable VAD filter for Faster Whisper. Default is False.')
+
+    parser.add_argument('--whisper_cpp_model_path', type=str, default=None,
+                        help='Explicit path to a whisper.cpp GGML/GGUF model for the main transcription backend.')
+    parser.add_argument('--whisper_cpp_realtime_model_path', type=str, default=None,
+                        help='Explicit path to a whisper.cpp GGML/GGUF model for the realtime transcription backend.')
+    parser.add_argument('--whisper_cpp_threads', type=int, default=None,
+                        help='Override whisper.cpp thread count for main transcription.')
+    parser.add_argument('--whisper_cpp_realtime_threads', type=int, default=None,
+                        help='Override whisper.cpp thread count for realtime transcription.')
+    parser.add_argument('--whisper_cpp_acceleration', type=str, default='auto',
+                        choices=['auto', 'cpu', 'metal', 'coreml', 'cuda', 'vulkan', 'openvino'],
+                        help='Preferred whisper.cpp acceleration mode. Default is auto.')
+    parser.add_argument('--whisper_cpp_coreml_encoder_path', type=str, default=None,
+                        help='Explicit path to a whisper.cpp Core ML encoder bundle.')
+    parser.add_argument('--whisper_cpp_openvino_encoder_path', type=str, default=None,
+                        help='Explicit path to a whisper.cpp OpenVINO encoder XML.')
+    parser.add_argument('--whisper_cpp_openvino_device', type=str, default='CPU',
+                        help='OpenVINO device name for whisper.cpp. Default is CPU.')
+    parser.add_argument('--whisper_cpp_openvino_cache_dir', type=str, default=None,
+                        help='Optional cache directory for whisper.cpp OpenVINO compiled blobs.')
+    parser.add_argument('--whisper_cpp_no_context_realtime', type=lambda value: value.lower() == 'true', default=True,
+                        help='Disable whisper.cpp decode context carry-over for realtime mode. Default is true.')
+    parser.add_argument('--whisper_cpp_single_segment_realtime', type=lambda value: value.lower() == 'true', default=True,
+                        help='Force whisper.cpp realtime decode into single-segment mode. Default is true.')
 
     parser.add_argument('--logchunks', action='store_true', help='Enable logging of incoming audio chunks (periods)')
 
@@ -797,6 +825,7 @@ async def main_async():
 
     recorder_config = {
         'model': args.model,
+        'backend': args.backend,
         'download_root': args.root,
         'realtime_model_type': args.rt_model,
         'language': args.lang,
@@ -853,6 +882,17 @@ async def main_async():
         'suppress_tokens': args.suppress_tokens,
         'allowed_latency_limit': args.allowed_latency_limit,
         'faster_whisper_vad_filter': args.faster_whisper_vad_filter,
+        'whisper_cpp_model_path': args.whisper_cpp_model_path,
+        'whisper_cpp_realtime_model_path': args.whisper_cpp_realtime_model_path,
+        'whisper_cpp_threads': args.whisper_cpp_threads,
+        'whisper_cpp_realtime_threads': args.whisper_cpp_realtime_threads,
+        'whisper_cpp_acceleration': args.whisper_cpp_acceleration,
+        'whisper_cpp_coreml_encoder_path': args.whisper_cpp_coreml_encoder_path,
+        'whisper_cpp_openvino_encoder_path': args.whisper_cpp_openvino_encoder_path,
+        'whisper_cpp_openvino_device': args.whisper_cpp_openvino_device,
+        'whisper_cpp_openvino_cache_dir': args.whisper_cpp_openvino_cache_dir,
+        'whisper_cpp_no_context_realtime': args.whisper_cpp_no_context_realtime,
+        'whisper_cpp_single_segment_realtime': args.whisper_cpp_single_segment_realtime,
     }
 
     try:

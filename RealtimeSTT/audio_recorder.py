@@ -91,41 +91,16 @@ if platform.system() != 'Darwin':
 
 
 class TranscriptionWorker:
-    def __init__(self, conn, stdout_pipe, model_path, download_root, compute_type, gpu_device_index, device,
-                 ready_event, shutdown_event, interrupt_stop_event, beam_size, initial_prompt, suppress_tokens,
-                 batch_size, faster_whisper_vad_filter, normalize_audio):
+    def __init__(self, conn, stdout_pipe, backend_config, ready_event, shutdown_event, interrupt_stop_event):
         self.conn = conn
         self.stdout_pipe = stdout_pipe
-        self.model_path = model_path
-        self.download_root = download_root
-        self.compute_type = compute_type
-        self.gpu_device_index = gpu_device_index
-        self.device = device
+        self.backend_config = backend_config
+        self.model_path = backend_config.model_id
         self.ready_event = ready_event
         self.shutdown_event = shutdown_event
         self.interrupt_stop_event = interrupt_stop_event
-        self.beam_size = beam_size
-        self.initial_prompt = initial_prompt
-        self.suppress_tokens = suppress_tokens
-        self.batch_size = batch_size
-        self.faster_whisper_vad_filter = faster_whisper_vad_filter
-        self.normalize_audio = normalize_audio
         self.queue = queue.Queue()
-        self.backend = create_asr_backend(
-            ASRBackendConfig(
-                model_id=model_path,
-                download_root=download_root,
-                device=device,
-                compute_type=compute_type,
-                gpu_device_index=gpu_device_index,
-                beam_size=beam_size,
-                initial_prompt=initial_prompt,
-                suppress_tokens=suppress_tokens,
-                batch_size=batch_size,
-                faster_whisper_vad_filter=faster_whisper_vad_filter,
-                normalize_audio=normalize_audio,
-            )
-        )
+        self.backend = create_asr_backend(backend_config)
 
     def custom_print(self, *args, **kwargs):
         message = ' '.join(map(str, args))
@@ -304,7 +279,19 @@ class AudioToTextRecorder:
                  allowed_latency_limit: int = ALLOWED_LATENCY_LIMIT,
                  no_log_file: bool = False,
                  use_extended_logging: bool = False,
+                 backend: str = "faster-whisper",
                  faster_whisper_vad_filter: bool = True,
+                 whisper_cpp_model_path: Optional[str] = None,
+                 whisper_cpp_realtime_model_path: Optional[str] = None,
+                 whisper_cpp_threads: Optional[int] = None,
+                 whisper_cpp_realtime_threads: Optional[int] = None,
+                 whisper_cpp_acceleration: str = "auto",
+                 whisper_cpp_coreml_encoder_path: Optional[str] = None,
+                 whisper_cpp_openvino_encoder_path: Optional[str] = None,
+                 whisper_cpp_openvino_device: str = "CPU",
+                 whisper_cpp_openvino_cache_dir: Optional[str] = None,
+                 whisper_cpp_no_context_realtime: bool = True,
+                 whisper_cpp_single_segment_realtime: bool = True,
                  normalize_audio: bool = False,
                  start_callback_in_new_thread: bool = False,
                  ):
@@ -656,7 +643,19 @@ class AudioToTextRecorder:
         self.print_transcription_time = print_transcription_time
         self.early_transcription_on_silence = early_transcription_on_silence
         self.use_extended_logging = use_extended_logging
+        self.backend = backend
         self.faster_whisper_vad_filter = faster_whisper_vad_filter
+        self.whisper_cpp_model_path = whisper_cpp_model_path
+        self.whisper_cpp_realtime_model_path = whisper_cpp_realtime_model_path
+        self.whisper_cpp_threads = whisper_cpp_threads
+        self.whisper_cpp_realtime_threads = whisper_cpp_realtime_threads
+        self.whisper_cpp_acceleration = whisper_cpp_acceleration
+        self.whisper_cpp_coreml_encoder_path = whisper_cpp_coreml_encoder_path
+        self.whisper_cpp_openvino_encoder_path = whisper_cpp_openvino_encoder_path
+        self.whisper_cpp_openvino_device = whisper_cpp_openvino_device
+        self.whisper_cpp_openvino_cache_dir = whisper_cpp_openvino_cache_dir
+        self.whisper_cpp_no_context_realtime = whisper_cpp_no_context_realtime
+        self.whisper_cpp_single_segment_realtime = whisper_cpp_single_segment_realtime
         self.normalize_audio = normalize_audio
         self.awaiting_speech_end = False
         self.start_callback_in_new_thread = start_callback_in_new_thread
@@ -697,6 +696,9 @@ class AudioToTextRecorder:
 
         logger.info("Starting RealTimeSTT")
 
+        if self.backend == "whisper.cpp" and self.faster_whisper_vad_filter:
+            logger.warning("faster_whisper_vad_filter is ignored when backend='whisper.cpp'")
+
         if use_extended_logging:
             logger.info("RealtimeSTT was called with these parameters:")
             for param, value in locals().items():
@@ -717,20 +719,10 @@ class AudioToTextRecorder:
             args=(
                 child_transcription_pipe,
                 child_stdout_pipe,
-                self.main_model_type,
-                self.download_root,
-                self.compute_type,
-                self.gpu_device_index,
-                self.device,
+                self._create_main_asr_backend_config(),
                 self.main_transcription_ready_event,
                 self.shutdown_event,
                 self.interrupt_stop_event,
-                self.beam_size,
-                self.initial_prompt,
-                self.suppress_tokens,
-                self.batch_size,
-                self.faster_whisper_vad_filter,
-                self.normalize_audio,
             )
         )
 
@@ -764,21 +756,7 @@ class AudioToTextRecorder:
                              f"device index: {self.gpu_device_index}, "
                              f"download root: {self.download_root}"
                              )
-                self.realtime_asr_backend = create_asr_backend(
-                    ASRBackendConfig(
-                        model_id=self.realtime_model_type,
-                        download_root=self.download_root,
-                        device=self.device,
-                        compute_type=self.compute_type,
-                        gpu_device_index=self.gpu_device_index,
-                        beam_size=self.beam_size_realtime,
-                        initial_prompt=self.initial_prompt_realtime,
-                        suppress_tokens=self.suppress_tokens,
-                        batch_size=self.realtime_batch_size,
-                        faster_whisper_vad_filter=self.faster_whisper_vad_filter,
-                        normalize_audio=self.normalize_audio,
-                    )
-                )
+                self.realtime_asr_backend = create_asr_backend(self._create_realtime_asr_backend_config())
                 self.realtime_asr_backend.warmup()
             except Exception as e:
                 logger.exception("Error initializing realtime transcription backend: %s", e)
@@ -983,6 +961,58 @@ class AudioToTextRecorder:
                 logger.error(traceback.format_exc())  # Log the full traceback here
                 break 
             time.sleep(0.1)
+
+    def _create_main_asr_backend_config(self):
+        return ASRBackendConfig(
+            model_id=self.main_model_type,
+            backend=self.backend,
+            download_root=self.download_root,
+            language=self.language,
+            device=self.device,
+            compute_type=self.compute_type,
+            gpu_device_index=self.gpu_device_index,
+            beam_size=self.beam_size,
+            initial_prompt=self.initial_prompt,
+            suppress_tokens=self.suppress_tokens,
+            batch_size=self.batch_size,
+            faster_whisper_vad_filter=self.faster_whisper_vad_filter,
+            normalize_audio=self.normalize_audio,
+            whisper_cpp_threads=self.whisper_cpp_threads,
+            whisper_cpp_acceleration=self.whisper_cpp_acceleration,
+            whisper_cpp_model_path=self.whisper_cpp_model_path,
+            whisper_cpp_coreml_encoder_path=self.whisper_cpp_coreml_encoder_path,
+            whisper_cpp_openvino_encoder_path=self.whisper_cpp_openvino_encoder_path,
+            whisper_cpp_openvino_device=self.whisper_cpp_openvino_device,
+            whisper_cpp_openvino_cache_dir=self.whisper_cpp_openvino_cache_dir,
+            whisper_cpp_no_context=False,
+            whisper_cpp_single_segment=False,
+        )
+
+    def _create_realtime_asr_backend_config(self):
+        return ASRBackendConfig(
+            model_id=self.realtime_model_type,
+            backend=self.backend,
+            download_root=self.download_root,
+            language=self.language,
+            device=self.device,
+            compute_type=self.compute_type,
+            gpu_device_index=self.gpu_device_index,
+            beam_size=self.beam_size_realtime,
+            initial_prompt=self.initial_prompt_realtime,
+            suppress_tokens=self.suppress_tokens,
+            batch_size=self.realtime_batch_size,
+            faster_whisper_vad_filter=self.faster_whisper_vad_filter,
+            normalize_audio=self.normalize_audio,
+            whisper_cpp_threads=self.whisper_cpp_realtime_threads or self.whisper_cpp_threads,
+            whisper_cpp_acceleration=self.whisper_cpp_acceleration,
+            whisper_cpp_model_path=self.whisper_cpp_realtime_model_path,
+            whisper_cpp_coreml_encoder_path=self.whisper_cpp_coreml_encoder_path,
+            whisper_cpp_openvino_encoder_path=self.whisper_cpp_openvino_encoder_path,
+            whisper_cpp_openvino_device=self.whisper_cpp_openvino_device,
+            whisper_cpp_openvino_cache_dir=self.whisper_cpp_openvino_cache_dir,
+            whisper_cpp_no_context=self.whisper_cpp_no_context_realtime,
+            whisper_cpp_single_segment=self.whisper_cpp_single_segment_realtime,
+        )
 
     def _transcription_worker(*args, **kwargs):
         worker = TranscriptionWorker(*args, **kwargs)

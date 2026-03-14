@@ -166,6 +166,7 @@ class AudioToTextRecorderClient:
                  allowed_latency_limit: int = ALLOWED_LATENCY_LIMIT,
                  no_log_file: bool = False,
                  use_extended_logging: bool = False,
+                 backend: str = "faster-whisper",
 
                  # Server urls
                  control_url: str = DEFAULT_CONTROL_URL,
@@ -173,6 +174,17 @@ class AudioToTextRecorderClient:
                  autostart_server: bool = True,
                  output_wav_file: str = None,
                  faster_whisper_vad_filter: bool = False,
+                 whisper_cpp_model_path: Optional[str] = None,
+                 whisper_cpp_realtime_model_path: Optional[str] = None,
+                 whisper_cpp_threads: Optional[int] = None,
+                 whisper_cpp_realtime_threads: Optional[int] = None,
+                 whisper_cpp_acceleration: str = "auto",
+                 whisper_cpp_coreml_encoder_path: Optional[str] = None,
+                 whisper_cpp_openvino_encoder_path: Optional[str] = None,
+                 whisper_cpp_openvino_device: str = "CPU",
+                 whisper_cpp_openvino_cache_dir: Optional[str] = None,
+                 whisper_cpp_no_context_realtime: bool = True,
+                 whisper_cpp_single_segment_realtime: bool = True,
                  ):
 
         # Set instance variables from constructor parameters
@@ -248,7 +260,19 @@ class AudioToTextRecorderClient:
         self.allowed_latency_limit = allowed_latency_limit
         self.no_log_file = no_log_file
         self.use_extended_logging = use_extended_logging
+        self.backend = backend
         self.faster_whisper_vad_filter = faster_whisper_vad_filter
+        self.whisper_cpp_model_path = whisper_cpp_model_path
+        self.whisper_cpp_realtime_model_path = whisper_cpp_realtime_model_path
+        self.whisper_cpp_threads = whisper_cpp_threads
+        self.whisper_cpp_realtime_threads = whisper_cpp_realtime_threads
+        self.whisper_cpp_acceleration = whisper_cpp_acceleration
+        self.whisper_cpp_coreml_encoder_path = whisper_cpp_coreml_encoder_path
+        self.whisper_cpp_openvino_encoder_path = whisper_cpp_openvino_encoder_path
+        self.whisper_cpp_openvino_device = whisper_cpp_openvino_device
+        self.whisper_cpp_openvino_cache_dir = whisper_cpp_openvino_cache_dir
+        self.whisper_cpp_no_context_realtime = whisper_cpp_no_context_realtime
+        self.whisper_cpp_single_segment_realtime = whisper_cpp_single_segment_realtime
 
         # Server URLs
         self.control_url = control_url
@@ -431,8 +455,30 @@ class AudioToTextRecorderClient:
         # Map constructor parameters to server arguments
         if self.model:
             args += ['--model', self.model]
+        if self.backend:
+            args += ['--backend', self.backend]
         if self.realtime_model_type:
             args += ['--realtime_model_type', self.realtime_model_type]
+        if self.whisper_cpp_model_path:
+            args += ['--whisper_cpp_model_path', self.whisper_cpp_model_path]
+        if self.whisper_cpp_realtime_model_path:
+            args += ['--whisper_cpp_realtime_model_path', self.whisper_cpp_realtime_model_path]
+        if self.whisper_cpp_threads is not None:
+            args += ['--whisper_cpp_threads', str(self.whisper_cpp_threads)]
+        if self.whisper_cpp_realtime_threads is not None:
+            args += ['--whisper_cpp_realtime_threads', str(self.whisper_cpp_realtime_threads)]
+        if self.whisper_cpp_acceleration:
+            args += ['--whisper_cpp_acceleration', self.whisper_cpp_acceleration]
+        if self.whisper_cpp_coreml_encoder_path:
+            args += ['--whisper_cpp_coreml_encoder_path', self.whisper_cpp_coreml_encoder_path]
+        if self.whisper_cpp_openvino_encoder_path:
+            args += ['--whisper_cpp_openvino_encoder_path', self.whisper_cpp_openvino_encoder_path]
+        if self.whisper_cpp_openvino_device:
+            args += ['--whisper_cpp_openvino_device', self.whisper_cpp_openvino_device]
+        if self.whisper_cpp_openvino_cache_dir:
+            args += ['--whisper_cpp_openvino_cache_dir', self.whisper_cpp_openvino_cache_dir]
+        args += ['--whisper_cpp_no_context_realtime', str(self.whisper_cpp_no_context_realtime).lower()]
+        args += ['--whisper_cpp_single_segment_realtime', str(self.whisper_cpp_single_segment_realtime).lower()]
         if self.download_root:
             args += ['--root', self.download_root]
         if self.batch_size is not None:
