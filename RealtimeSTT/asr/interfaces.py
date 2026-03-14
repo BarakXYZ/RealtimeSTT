@@ -54,6 +54,9 @@ class ASRBackendConfig:
     whisper_cpp_openvino_cache_dir: Optional[str] = None
     whisper_cpp_no_context: bool = True
     whisper_cpp_single_segment: bool = False
+    whisper_cpp_stream_length_ms: int = 5000
+    whisper_cpp_stream_step_ms: int = 700
+    whisper_cpp_stream_keep_ms: int = 200
 
 
 class ASRBackend(Protocol):
@@ -61,4 +64,7 @@ class ASRBackend(Protocol):
         ...
 
     def transcribe(self, audio: np.ndarray, language: Optional[str] = None, use_prompt: bool = True) -> TranscriptResult:
+        ...
+
+    def abort(self) -> None:
         ...

@@ -97,3 +97,7 @@ class FasterWhisperBackend:
         segments, info = model.transcribe(normalized_audio, **kwargs)
         elapsed = time.time() - start_t
         return self._build_result(segments, info, elapsed)
+
+    def abort(self) -> None:
+        # faster-whisper does not expose a cooperative decode abort hook here
+        return None

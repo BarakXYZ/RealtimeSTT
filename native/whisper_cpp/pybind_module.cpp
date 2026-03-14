@@ -200,7 +200,11 @@ WhisperTranscription WhisperCppState::transcribe(
 
     {
         py::gil_scoped_release release;
-        if (whisper_full_with_state(model_->context(), state_, params, samples, sample_count) != 0) {
+        const int rc = whisper_full_with_state(model_->context(), state_, params, samples, sample_count);
+        if (rc != 0) {
+            if (abort_requested_.load()) {
+                return WhisperTranscription{};
+            }
             throw std::runtime_error("whisper.cpp transcription failed");
         }
     }

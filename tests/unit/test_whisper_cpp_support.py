@@ -122,6 +122,9 @@ class WhisperCppSupportTests(unittest.TestCase):
         client.whisper_cpp_openvino_cache_dir = None
         client.whisper_cpp_no_context_realtime = False
         client.whisper_cpp_single_segment_realtime = True
+        client.whisper_cpp_stream_length_ms = 5000
+        client.whisper_cpp_stream_step_ms = 700
+        client.whisper_cpp_stream_keep_ms = 200
         client.download_root = None
         client.batch_size = 16
         client.realtime_batch_size = 16
@@ -165,6 +168,10 @@ class WhisperCppSupportTests(unittest.TestCase):
         self.assertIn("metal", args)
         self.assertIn("--whisper_cpp_no_context_realtime", args)
         self.assertIn("false", args)
+        self.assertIn("--whisper_cpp_stream_length_ms", args)
+        self.assertIn("5000", args)
+        self.assertIn("--whisper_cpp_stream_step_ms", args)
+        self.assertIn("700", args)
 
     def test_whisper_cpp_known_model_downloads_and_verifies_checksum(self):
         with tempfile.TemporaryDirectory() as tmpdir:

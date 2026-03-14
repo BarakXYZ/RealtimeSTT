@@ -117,3 +117,7 @@ class WhisperCppBackend:
             segments=segments,
             metadata=metadata,
         )
+
+    def abort(self) -> None:
+        if self._state is not None:
+            self._state.request_abort()

@@ -186,6 +186,9 @@ class AudioToTextRecorderClient:
                  whisper_cpp_openvino_cache_dir: Optional[str] = None,
                  whisper_cpp_no_context_realtime: bool = True,
                  whisper_cpp_single_segment_realtime: bool = True,
+                 whisper_cpp_stream_length_ms: int = 5000,
+                 whisper_cpp_stream_step_ms: int = 700,
+                 whisper_cpp_stream_keep_ms: int = 200,
                  ):
 
         # Set instance variables from constructor parameters
@@ -275,6 +278,9 @@ class AudioToTextRecorderClient:
         self.whisper_cpp_openvino_cache_dir = whisper_cpp_openvino_cache_dir
         self.whisper_cpp_no_context_realtime = whisper_cpp_no_context_realtime
         self.whisper_cpp_single_segment_realtime = whisper_cpp_single_segment_realtime
+        self.whisper_cpp_stream_length_ms = whisper_cpp_stream_length_ms
+        self.whisper_cpp_stream_step_ms = whisper_cpp_stream_step_ms
+        self.whisper_cpp_stream_keep_ms = whisper_cpp_stream_keep_ms
 
         # Server URLs
         self.control_url = control_url
@@ -482,6 +488,9 @@ class AudioToTextRecorderClient:
             args += ['--whisper_cpp_openvino_cache_dir', self.whisper_cpp_openvino_cache_dir]
         args += ['--whisper_cpp_no_context_realtime', str(self.whisper_cpp_no_context_realtime).lower()]
         args += ['--whisper_cpp_single_segment_realtime', str(self.whisper_cpp_single_segment_realtime).lower()]
+        args += ['--whisper_cpp_stream_length_ms', str(self.whisper_cpp_stream_length_ms)]
+        args += ['--whisper_cpp_stream_step_ms', str(self.whisper_cpp_stream_step_ms)]
+        args += ['--whisper_cpp_stream_keep_ms', str(self.whisper_cpp_stream_keep_ms)]
         if self.download_root:
             args += ['--root', self.download_root]
         if self.batch_size is not None:

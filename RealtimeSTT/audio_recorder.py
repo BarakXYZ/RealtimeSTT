@@ -115,6 +115,9 @@ class TranscriptionWorker:
                 # Use a longer timeout to reduce polling frequency
                 if self.conn.poll(0.01):  # Increased from 0.01 to 0.5 seconds
                     data = self.conn.recv()
+                    if data == "__abort__":
+                        self.backend.abort()
+                        continue
                     self.queue.put(data)
                 else:
                     # Sleep only if no data, but use a shorter sleep
@@ -293,6 +296,9 @@ class AudioToTextRecorder:
                  whisper_cpp_openvino_cache_dir: Optional[str] = None,
                  whisper_cpp_no_context_realtime: bool = True,
                  whisper_cpp_single_segment_realtime: bool = True,
+                 whisper_cpp_stream_length_ms: int = 5000,
+                 whisper_cpp_stream_step_ms: int = 700,
+                 whisper_cpp_stream_keep_ms: int = 200,
                  normalize_audio: bool = False,
                  start_callback_in_new_thread: bool = False,
                  ):
@@ -617,6 +623,7 @@ class AudioToTextRecorder:
         self.text_storage = []
         self.realtime_stabilized_text = ""
         self.realtime_stabilized_safetext = ""
+        self.realtime_stream_committed_text = ""
         self.is_webrtc_speech_active = False
         self.is_silero_speech_active = False
         self.recording_thread = None
@@ -658,6 +665,9 @@ class AudioToTextRecorder:
         self.whisper_cpp_openvino_cache_dir = whisper_cpp_openvino_cache_dir
         self.whisper_cpp_no_context_realtime = whisper_cpp_no_context_realtime
         self.whisper_cpp_single_segment_realtime = whisper_cpp_single_segment_realtime
+        self.whisper_cpp_stream_length_ms = whisper_cpp_stream_length_ms
+        self.whisper_cpp_stream_step_ms = whisper_cpp_stream_step_ms
+        self.whisper_cpp_stream_keep_ms = whisper_cpp_stream_keep_ms
         self.normalize_audio = normalize_audio
         self.awaiting_speech_end = False
         self.start_callback_in_new_thread = start_callback_in_new_thread
@@ -700,6 +710,8 @@ class AudioToTextRecorder:
 
         if self.backend == "whisper.cpp" and self.faster_whisper_vad_filter:
             logger.warning("faster_whisper_vad_filter is ignored when backend='whisper.cpp'")
+        if self.backend == "whisper.cpp":
+            self._apply_whisper_cpp_realtime_defaults()
 
         if use_extended_logging:
             logger.info("RealtimeSTT was called with these parameters:")
@@ -989,6 +1001,9 @@ class AudioToTextRecorder:
             whisper_cpp_openvino_cache_dir=self.whisper_cpp_openvino_cache_dir,
             whisper_cpp_no_context=False,
             whisper_cpp_single_segment=False,
+            whisper_cpp_stream_length_ms=self.whisper_cpp_stream_length_ms,
+            whisper_cpp_stream_step_ms=self.whisper_cpp_stream_step_ms,
+            whisper_cpp_stream_keep_ms=self.whisper_cpp_stream_keep_ms,
         )
 
     def _create_realtime_asr_backend_config(self):
@@ -1016,7 +1031,160 @@ class AudioToTextRecorder:
             whisper_cpp_openvino_cache_dir=self.whisper_cpp_openvino_cache_dir,
             whisper_cpp_no_context=self.whisper_cpp_no_context_realtime,
             whisper_cpp_single_segment=self.whisper_cpp_single_segment_realtime,
+            whisper_cpp_stream_length_ms=self.whisper_cpp_stream_length_ms,
+            whisper_cpp_stream_step_ms=self.whisper_cpp_stream_step_ms,
+            whisper_cpp_stream_keep_ms=self.whisper_cpp_stream_keep_ms,
         )
+
+    def _apply_whisper_cpp_realtime_defaults(self):
+        if self.use_main_model_for_realtime:
+            logger.warning(
+                "whisper.cpp realtime preview does not support use_main_model_for_realtime=True safely; "
+                "forcing use_main_model_for_realtime=False"
+            )
+            self.use_main_model_for_realtime = False
+
+        if self.beam_size_realtime != 1:
+            logger.warning(
+                "whisper.cpp realtime preview is forcing beam_size_realtime=1 for stability (was %s)",
+                self.beam_size_realtime,
+            )
+            self.beam_size_realtime = 1
+
+        if self.whisper_cpp_no_context_realtime:
+            logger.warning(
+                "whisper.cpp realtime preview is forcing whisper_cpp_no_context_realtime=False "
+                "to preserve chunk context"
+            )
+            self.whisper_cpp_no_context_realtime = False
+
+        if self.whisper_cpp_single_segment_realtime:
+            logger.warning(
+                "whisper.cpp realtime preview is forcing whisper_cpp_single_segment_realtime=False "
+                "to preserve segment-level stabilization"
+            )
+            self.whisper_cpp_single_segment_realtime = False
+
+        if self.whisper_cpp_stream_step_ms < 500:
+            logger.warning(
+                "whisper.cpp realtime preview requires whisper_cpp_stream_step_ms >= 500; forcing 700 ms"
+            )
+            self.whisper_cpp_stream_step_ms = 700
+
+        if self.whisper_cpp_stream_length_ms < self.whisper_cpp_stream_step_ms:
+            logger.warning(
+                "whisper.cpp realtime preview requires whisper_cpp_stream_length_ms >= step_ms; "
+                "raising window length to %s ms",
+                self.whisper_cpp_stream_step_ms,
+            )
+            self.whisper_cpp_stream_length_ms = self.whisper_cpp_stream_step_ms
+
+        if self.whisper_cpp_stream_keep_ms > self.whisper_cpp_stream_step_ms:
+            self.whisper_cpp_stream_keep_ms = self.whisper_cpp_stream_step_ms
+
+        desired_pause = self.whisper_cpp_stream_step_ms / 1000.0
+        if abs(self.realtime_processing_pause - desired_pause) > 1e-6:
+            logger.warning(
+                "whisper.cpp realtime preview is forcing realtime_processing_pause=%.2f seconds "
+                "to match the streaming decode step",
+                desired_pause,
+            )
+            self.realtime_processing_pause = desired_pause
+
+    @staticmethod
+    def _split_words(text):
+        return [part for part in text.split() if part]
+
+    def _merge_text_with_word_overlap(self, committed_text, incoming_text):
+        committed_text = (committed_text or "").strip()
+        incoming_text = (incoming_text or "").strip()
+        if not committed_text:
+            return incoming_text
+        if not incoming_text:
+            return committed_text
+
+        committed_words = self._split_words(committed_text)
+        incoming_words = self._split_words(incoming_text)
+        max_overlap = min(len(committed_words), len(incoming_words))
+        for overlap in range(max_overlap, 0, -1):
+            if committed_words[-overlap:] == incoming_words[:overlap]:
+                return " ".join(committed_words + incoming_words[overlap:]).strip()
+
+        if incoming_text in committed_text:
+            return committed_text
+        if committed_text in incoming_text:
+            return incoming_text
+
+        return " ".join(committed_words + incoming_words).strip()
+
+    def _remaining_words_after_overlap(self, stable_text, full_text):
+        stable_words = self._split_words(stable_text)
+        full_words = self._split_words(full_text)
+        if not stable_words:
+            return full_text.strip()
+
+        max_overlap = min(len(stable_words), len(full_words))
+        for overlap in range(max_overlap, 0, -1):
+            if stable_words[-overlap:] == full_words[:overlap]:
+                return " ".join(full_words[overlap:]).strip()
+
+        if len(full_words) >= len(stable_words) and full_words[:len(stable_words)] == stable_words:
+            return " ".join(full_words[len(stable_words):]).strip()
+
+        return full_text.strip()
+
+    def _reset_whisper_cpp_realtime_state(self):
+        self.realtime_stream_committed_text = ""
+        self.realtime_stabilized_text = ""
+        self.realtime_stabilized_safetext = ""
+        self.realtime_transcription_text = ""
+        self.text_storage.clear()
+
+    def _prepare_whisper_cpp_realtime_audio(self, audio_array):
+        num_samples_length = int((1e-3 * self.whisper_cpp_stream_length_ms) * self.sample_rate)
+        if num_samples_length <= 0 or audio_array.size <= num_samples_length:
+            return audio_array.astype(np.float32, copy=False)
+        return audio_array[-num_samples_length:].astype(np.float32, copy=False)
+
+    def _build_whisper_cpp_realtime_texts(self, transcript_result, window_duration_ms):
+        segment_texts = [
+            segment.text.strip()
+            for segment in transcript_result.segments
+            if getattr(segment, "text", "").strip()
+        ]
+        if segment_texts:
+            full_window_text = " ".join(segment_texts).strip()
+        else:
+            full_window_text = (transcript_result.text or "").strip()
+
+        stable_cutoff_ms = max(0, int(window_duration_ms) - int(self.whisper_cpp_stream_keep_ms))
+        stable_window_segments = [
+            segment.text.strip()
+            for segment in transcript_result.segments
+            if getattr(segment, "text", "").strip() and int(getattr(segment, "t1_ms", 0) or 0) <= stable_cutoff_ms
+        ]
+        stable_window_text = " ".join(stable_window_segments).strip()
+
+        if stable_window_text:
+            self.realtime_stream_committed_text = self._merge_text_with_word_overlap(
+                self.realtime_stream_committed_text,
+                stable_window_text,
+            )
+
+        committed_text = self.realtime_stream_committed_text.strip()
+        if stable_window_text:
+            unstable_suffix = self._remaining_words_after_overlap(stable_window_text, full_window_text)
+            preview_text = committed_text
+            if unstable_suffix:
+                preview_text = f"{preview_text} {unstable_suffix}".strip() if preview_text else unstable_suffix
+        else:
+            preview_text = (
+                self._merge_text_with_word_overlap(committed_text, full_window_text)
+                if full_window_text
+                else committed_text
+            )
+
+        return committed_text, preview_text.strip()
 
     def _transcription_worker(*args, **kwargs):
         worker = TranscriptionWorker(*args, **kwargs)
@@ -1384,6 +1552,15 @@ class AudioToTextRecorder:
         state = self.state
         self.start_recording_on_voice_activity = False
         self.stop_recording_on_voice_deactivity = False
+        try:
+            self.parent_transcription_pipe.send("__abort__")
+        except Exception:
+            logger.debug("Unable to deliver abort signal to transcription worker", exc_info=True)
+        if self.realtime_asr_backend:
+            try:
+                self.realtime_asr_backend.abort()
+            except Exception:
+                logger.debug("Unable to abort whisper.cpp realtime backend", exc_info=True)
         self.interrupt_stop_event.set()
         if self.state != "inactive": # if inactive, was_interrupted will never be set
             self.was_interrupted.wait()
@@ -2381,7 +2558,26 @@ class AudioToTextRecorder:
                     audio_array = audio_array.astype(np.float32) / \
                         INT16_MAX_ABS_VALUE
 
-                    if self.use_main_model_for_realtime:
+                    if self.backend == "whisper.cpp" and self.realtime_asr_backend:
+                        stream_audio_array = self._prepare_whisper_cpp_realtime_audio(audio_array)
+                        window_duration_ms = (stream_audio_array.size / self.sample_rate) * 1000.0
+                        transcript_result = self.realtime_asr_backend.transcribe(
+                            stream_audio_array,
+                            language=self.language if self.language else None,
+                            use_prompt=True,
+                        )
+                        self.detected_realtime_language = transcript_result.metadata.language
+                        self.detected_realtime_language_probability = transcript_result.metadata.language_probability
+                        committed_text, realtime_text = self._build_whisper_cpp_realtime_texts(
+                            transcript_result,
+                            window_duration_ms=window_duration_ms,
+                        )
+                        logger.debug(
+                            "Realtime whisper.cpp text detected: committed='%s' preview='%s'",
+                            committed_text,
+                            realtime_text,
+                        )
+                    elif self.use_main_model_for_realtime:
                         with self.transcription_lock:
                             try:
                                 self.parent_transcription_pipe.send((audio_array, self.language, True))
@@ -2433,6 +2629,23 @@ class AudioToTextRecorder:
                     # because it could have changed mid-transcription
                     if self.is_recording and time.time() - \
                             self.recording_start_time > self.init_realtime_after_seconds:
+
+                        if self.backend == "whisper.cpp" and self.realtime_asr_backend:
+                            self.realtime_transcription_text = realtime_text.strip()
+                            self.realtime_stabilized_safetext = committed_text.strip()
+                            self.realtime_stabilized_text = committed_text.strip()
+
+                            if self.realtime_stabilized_safetext:
+                                self._run_callback(
+                                    self._on_realtime_transcription_stabilized,
+                                    self._preprocess_output(self.realtime_stabilized_safetext, True),
+                                )
+
+                            self._run_callback(
+                                self._on_realtime_transcription_update,
+                                self._preprocess_output(self.realtime_transcription_text, True),
+                            )
+                            continue
 
                         self.realtime_transcription_text = realtime_text
                         self.realtime_transcription_text = \
@@ -2500,6 +2713,8 @@ class AudioToTextRecorder:
 
                 # If not recording, sleep briefly before checking again
                 else:
+                    if self.backend == "whisper.cpp" and self.realtime_stream_committed_text:
+                        self._reset_whisper_cpp_realtime_state()
                     time.sleep(TIME_SLEEP)
 
         except Exception as e:

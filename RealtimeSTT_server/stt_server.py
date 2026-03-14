@@ -565,6 +565,12 @@ def parse_arguments():
                         help='Disable whisper.cpp decode context carry-over for realtime mode. Default is true.')
     parser.add_argument('--whisper_cpp_single_segment_realtime', type=lambda value: value.lower() == 'true', default=True,
                         help='Force whisper.cpp realtime decode into single-segment mode. Default is true.')
+    parser.add_argument('--whisper_cpp_stream_length_ms', type=int, default=5000,
+                        help='Rolling whisper.cpp realtime decode window length in milliseconds. Default is 5000.')
+    parser.add_argument('--whisper_cpp_stream_step_ms', type=int, default=700,
+                        help='whisper.cpp realtime decode cadence in milliseconds. Default is 700.')
+    parser.add_argument('--whisper_cpp_stream_keep_ms', type=int, default=200,
+                        help='Trailing whisper.cpp realtime overlap to keep unstable in milliseconds. Default is 200.')
 
     parser.add_argument('--logchunks', action='store_true', help='Enable logging of incoming audio chunks (periods)')
 
@@ -896,6 +902,9 @@ async def main_async():
         'whisper_cpp_openvino_cache_dir': args.whisper_cpp_openvino_cache_dir,
         'whisper_cpp_no_context_realtime': args.whisper_cpp_no_context_realtime,
         'whisper_cpp_single_segment_realtime': args.whisper_cpp_single_segment_realtime,
+        'whisper_cpp_stream_length_ms': args.whisper_cpp_stream_length_ms,
+        'whisper_cpp_stream_step_ms': args.whisper_cpp_stream_step_ms,
+        'whisper_cpp_stream_keep_ms': args.whisper_cpp_stream_keep_ms,
     }
 
     try:

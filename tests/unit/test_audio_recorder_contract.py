@@ -100,6 +100,7 @@ def _install_dependency_stubs() -> None:
 
 _install_dependency_stubs()
 audio_recorder = importlib.import_module("RealtimeSTT.audio_recorder")
+interfaces = importlib.import_module("RealtimeSTT.asr.interfaces")
 
 
 class AudioRecorderContractTests(unittest.TestCase):
@@ -181,6 +182,57 @@ class AudioRecorderContractTests(unittest.TestCase):
 
         self.assertEqual(preview, "Hello world")
         self.assertEqual(final, "Hello world.")
+
+    def test_whisper_cpp_realtime_defaults_force_safe_streaming_shape(self):
+        recorder = self._make_recorder()
+        recorder.use_main_model_for_realtime = True
+        recorder.beam_size_realtime = 3
+        recorder.whisper_cpp_no_context_realtime = True
+        recorder.whisper_cpp_single_segment_realtime = True
+        recorder.whisper_cpp_stream_step_ms = 100
+        recorder.whisper_cpp_stream_length_ms = 300
+        recorder.whisper_cpp_stream_keep_ms = 900
+        recorder.realtime_processing_pause = 0.03
+
+        recorder._apply_whisper_cpp_realtime_defaults()
+
+        self.assertFalse(recorder.use_main_model_for_realtime)
+        self.assertEqual(recorder.beam_size_realtime, 1)
+        self.assertFalse(recorder.whisper_cpp_no_context_realtime)
+        self.assertFalse(recorder.whisper_cpp_single_segment_realtime)
+        self.assertEqual(recorder.whisper_cpp_stream_step_ms, 700)
+        self.assertEqual(recorder.whisper_cpp_stream_length_ms, 700)
+        self.assertEqual(recorder.whisper_cpp_stream_keep_ms, 700)
+        self.assertAlmostEqual(recorder.realtime_processing_pause, 0.7)
+
+    def test_whisper_cpp_realtime_text_builder_commits_only_stable_segments(self):
+        recorder = self._make_recorder()
+        recorder.whisper_cpp_stream_keep_ms = 200
+        recorder.realtime_stream_committed_text = ""
+        recorder.realtime_stabilized_safetext = ""
+        recorder.realtime_stabilized_text = ""
+        recorder.realtime_transcription_text = ""
+        recorder.text_storage = []
+
+        transcript = interfaces.TranscriptResult(
+            text="hello brave new world",
+            segments=[
+                interfaces.TranscriptSegment(text="hello brave", t0_ms=0, t1_ms=1200),
+                interfaces.TranscriptSegment(text="new world", t0_ms=1200, t1_ms=4950),
+            ],
+            metadata=interfaces.TranscriptMetadata(
+                language="en",
+                language_probability=1.0,
+                backend_name="whisper.cpp",
+                model_id="base.en",
+                timings={},
+            ),
+        )
+
+        committed, preview = recorder._build_whisper_cpp_realtime_texts(transcript, window_duration_ms=5000)
+
+        self.assertEqual(committed, "hello brave")
+        self.assertEqual(preview, "hello brave new world")
 
 
 if __name__ == "__main__":
