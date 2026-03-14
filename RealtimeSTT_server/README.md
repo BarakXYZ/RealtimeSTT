@@ -56,11 +56,17 @@ You can configure the server using the following command-line arguments:
 
 ### Available Parameters:
 
+#### `--backend`
+
+- **Type**: `str`
+- **Default**: `'faster-whisper'`
+- **Description**: Selects the ASR backend. Use `faster-whisper` for the existing CTranslate2 path or `whisper.cpp` for native cross-platform inference, including Apple Silicon Metal/Core ML acceleration.
+
 #### `-m`, `--model`
 
 - **Type**: `str`
 - **Default**: `'large-v2'`
-- **Description**: Path to the Speech-to-Text (STT) model or specify a model size. Options include: `tiny`, `tiny.en`, `base`, `base.en`, `small`, `small.en`, `medium`, `medium.en`, `large-v1`, `large-v2`, or any HuggingFace CTranslate2 STT model such as `deepdml/faster-whisper-large-v3-turbo-ct2`.
+- **Description**: Path to the Speech-to-Text (STT) model or specify a model size. For `faster-whisper`, standard Whisper aliases and HuggingFace CTranslate2 models are supported. For `whisper.cpp`, standard model aliases resolve to the official `whisper.cpp` GGML models.
 
 #### `-r`, `--rt-model`, `--realtime_model_type`
 

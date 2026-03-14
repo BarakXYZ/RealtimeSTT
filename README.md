@@ -94,7 +94,8 @@ This library uses:
   - [WebRTCVAD](https://github.com/wiseman/py-webrtcvad) for initial voice activity detection.
   - [SileroVAD](https://github.com/snakers4/silero-vad) for more accurate verification.
 - **Speech-To-Text**
-  - [Faster_Whisper](https://github.com/guillaumekln/faster-whisper) for instant (GPU-accelerated) transcription.
+  - [Faster_Whisper](https://github.com/guillaumekln/faster-whisper) for CUDA-first transcription.
+  - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) for native cross-platform inference, including Apple Silicon Metal/Core ML acceleration.
 - **Wake Word Detection**
   - [Porcupine](https://github.com/Picovoice/porcupine) or [OpenWakeWord](https://github.com/dscripka/openWakeWord) for wake word detection.
 
@@ -108,6 +109,11 @@ pip install RealtimeSTT
 ```
 
 This will install all the necessary dependencies, including a **CPU support only** version of PyTorch.
+
+RealtimeSTT now supports two ASR backends through the same recorder API:
+
+- `backend="faster-whisper"` keeps the existing CTranslate2-based path and remains the default.
+- `backend="whisper.cpp"` uses the native `whisper.cpp` C API and is the recommended option for Apple Silicon users who want Metal/Core ML acceleration.
 
 Although it is possible to run RealtimeSTT with a CPU installation only (use a small model like "tiny" or "base" in this case) you will get way better experience using CUDA (please scroll down).
 
@@ -433,15 +439,19 @@ When you initialize the `AudioToTextRecorder` class, you have various options to
     - Options: 'tiny', 'tiny.en', 'base', 'base.en', 'small', 'small.en', 'medium', 'medium.en', 'large-v1', 'large-v2'.
     - Note: If a size is provided, the model will be downloaded from the Hugging Face Hub.
 
+- **backend** (str, default="faster-whisper"): ASR backend to use. Supported values are `faster-whisper` and `whisper.cpp`.
+
 - **language** (str, default=""): Language code for transcription. If left empty, the model will try to auto-detect the language. Supported language codes are listed in [Whisper Tokenizer library](https://github.com/openai/whisper/blob/main/whisper/tokenizer.py).
 
 - **compute_type** (str, default="default"): Specifies the type of computation to be used for transcription. See [Whisper Quantization](https://opennmt.net/CTranslate2/quantization.html)
+    - This setting applies to the `faster-whisper` backend.
 
 - **input_device_index** (int, default=0): Audio Input Device Index to use.
 
 - **gpu_device_index** (int, default=0): GPU Device Index to use. The model can also be loaded on multiple GPUs by passing a list of IDs (e.g. [0, 1, 2, 3]).
 
 - **device** (str, default="cuda"): Device for model to use. Can either be "cuda" or "cpu". 
+    - This setting applies to the `faster-whisper` backend.
 
 - **on_recording_start**: A callable function triggered when recording starts.
 
@@ -468,6 +478,26 @@ When you initialize the `AudioToTextRecorder` class, you have various options to
 - **beam_size** (int, default=5): The beam size to use for beam search decoding.
 
 - **initial_prompt** (str or iterable of int, default=None): Initial prompt to be fed to the transcription models.
+
+- **faster_whisper_vad_filter** (bool, default=True): Enables the optional Faster Whisper VAD filter.
+    - This setting is ignored when `backend="whisper.cpp"`.
+
+- **whisper_cpp_model_path** / **whisper_cpp_realtime_model_path** (str, default=None): Explicit path to the `whisper.cpp` model file for the main or realtime decoder.
+    - If omitted, standard model aliases such as `base.en` or `large-v3-turbo` are resolved from the official `whisper.cpp` model distribution.
+
+- **whisper_cpp_threads** / **whisper_cpp_realtime_threads** (int, default=None): Override the thread count used by `whisper.cpp`.
+
+- **whisper_cpp_acceleration** (str, default="auto"): Preferred `whisper.cpp` acceleration mode.
+    - Supported values: `auto`, `cpu`, `metal`, `coreml`, `cuda`, `vulkan`, `openvino`.
+    - On Apple Silicon, `auto` prefers Core ML when the official `*-encoder.mlmodelc` bundle is present next to the model, otherwise Metal.
+
+- **whisper_cpp_coreml_encoder_path** (str, default=None): Optional path to a co-located `whisper.cpp` Core ML encoder bundle.
+
+- **whisper_cpp_openvino_encoder_path** (str, default=None): Optional path to a `whisper.cpp` OpenVINO encoder XML.
+
+- **whisper_cpp_no_context_realtime** (bool, default=True): Disables context carry-over during realtime `whisper.cpp` decoding.
+
+- **whisper_cpp_single_segment_realtime** (bool, default=True): Forces realtime `whisper.cpp` decoding into single-segment mode for more stable preview updates.
 
 - **suppress_tokens** (list of int, default=[-1]): Tokens to be suppressed from the transcription output.
 

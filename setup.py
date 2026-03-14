@@ -26,10 +26,10 @@ setuptools.setup(
     #     "Programming Language :: Python :: 3",
     #     "Operating System :: OS Independent",
     # ],
-    python_requires='>=3.6',
+    python_requires='>=3.9',
     license='MIT',
     install_requires=requirements,
-    keywords="real-time, audio, transcription, speech-to-text, voice-activity-detection, VAD, real-time-transcription, ambient-noise-detection, microphone-input, faster_whisper, speech-recognition, voice-assistants, audio-processing, buffered-transcription, pyaudio, ambient-noise-level, voice-deactivity",
+    keywords="real-time, audio, transcription, speech-to-text, voice-activity-detection, VAD, real-time-transcription, ambient-noise-detection, microphone-input, faster_whisper, whisper.cpp, speech-recognition, voice-assistants, audio-processing, buffered-transcription, pyaudio, ambient-noise-level, voice-deactivity",
     package_data={"RealtimeSTT": ["warmup_audio.wav"]},
     include_package_data=True,
     entry_points={
