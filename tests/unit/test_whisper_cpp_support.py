@@ -180,6 +180,28 @@ class WhisperCppSupportTests(unittest.TestCase):
             self.assertEqual(resolved, str(model_path))
             self.assertTrue(model_path.exists())
 
+    def test_whisper_cpp_known_model_downloads_atomically(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            model_name = "tiny.en"
+            model_path = Path(tmpdir) / "ggml-tiny.en.bin"
+            payload = b"atomic-whisper"
+            observed_targets: list[Path] = []
+
+            def fake_urlretrieve(url, target):
+                target_path = Path(target)
+                observed_targets.append(target_path)
+                target_path.write_bytes(payload)
+
+            with patch.object(model_resolver, "WHISPER_CPP_KNOWN_HASHES", {model_name: "0e605beb0da8b0e54e9b4df00b35441d7bb7317e"}):
+                with patch("RealtimeSTT.asr.model_resolver.urllib.request.urlretrieve", side_effect=fake_urlretrieve):
+                    resolved = model_resolver.resolve_model_identifier(model_name, tmpdir, backend="whisper.cpp")
+
+            self.assertEqual(resolved, str(model_path))
+            self.assertEqual(model_path.read_bytes(), payload)
+            self.assertEqual(len(observed_targets), 1)
+            self.assertNotEqual(observed_targets[0], model_path)
+            self.assertTrue(observed_targets[0].name.startswith(".ggml-tiny.en.bin.tmp-"))
+
     def test_resolve_coreml_encoder_path_schedules_generation_for_supported_model(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             model_path = Path(tmpdir) / "ggml-base.en.bin"
@@ -202,8 +224,6 @@ class WhisperCppSupportTests(unittest.TestCase):
             model_path = Path(tmpdir) / "ggml-base.en.bin"
             model_path.write_bytes(b"model")
             target_path = Path(tmpdir) / "ggml-base.en-encoder.mlmodelc"
-            convert_script = Path(tmpdir) / "convert-whisper-to-coreml.py"
-            convert_script.write_text("#!/usr/bin/env python3\n", encoding="utf-8")
             request = whisper_cpp_coreml.WhisperCppCoreMLRequest(
                 model_name="base.en",
                 model_path=str(model_path),
@@ -221,14 +241,16 @@ class WhisperCppSupportTests(unittest.TestCase):
                 mlpackage.mkdir(parents=True, exist_ok=True)
                 (mlpackage / "Manifest.json").write_text("{}", encoding="utf-8")
 
-            with patch("RealtimeSTT.asr.whisper_cpp_coreml._convert_script_path", return_value=convert_script):
+            with patch("RealtimeSTT.asr.whisper_cpp_coreml.importlib.util.find_spec", return_value=object()):
                 with patch("RealtimeSTT.asr.whisper_cpp_coreml._missing_runtime_dependencies", return_value=[]):
                     with patch("RealtimeSTT.asr.whisper_cpp_coreml.shutil.which", return_value="/usr/bin/xcrun"):
-                        with patch("RealtimeSTT.asr.whisper_cpp_coreml._run_subprocess", side_effect=fake_run):
+                        with patch("RealtimeSTT.asr.whisper_cpp_coreml._run_subprocess", side_effect=fake_run) as run_subprocess:
                             whisper_cpp_coreml._generate_coreml_encoder_sync(request)
 
             self.assertTrue(target_path.exists())
             self.assertTrue((target_path / "manifest.json").exists())
+            first_command = run_subprocess.call_args_list[0].args[0]
+            self.assertEqual(first_command[:3], [sys.executable, "-m", whisper_cpp_coreml.COREML_CONVERSION_MODULE])
 
 
 if __name__ == "__main__":

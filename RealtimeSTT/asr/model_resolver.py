@@ -2,7 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import os
+import shutil
+import time
 import urllib.request
+import uuid
 from pathlib import Path
 
 
@@ -57,6 +60,9 @@ WHISPER_CPP_KNOWN_HASHES = {
     "large-v3-turbo": "4af2b29d7ec73d781377bfd1758ca957a807e941",
     "large-v3-turbo-q5_0": "e050f7970618a659205450ad97eb95a18d69c9ee",
 }
+WHISPER_CPP_MODEL_LOCK_STALE_SECONDS = 60 * 60
+WHISPER_CPP_MODEL_LOCK_TIMEOUT_SECONDS = 10 * 60
+WHISPER_CPP_MODEL_LOCK_POLL_SECONDS = 0.25
 
 
 def _sha1(path: Path) -> str:
@@ -74,6 +80,33 @@ def _default_model_cache(download_root: str | None) -> Path:
     if download_root:
         return Path(download_root)
     return Path.home() / ".cache" / "RealtimeSTT" / "whisper.cpp"
+
+
+def _model_lock_path(model_path: Path) -> Path:
+    return model_path.parent / f".{model_path.name}.lock"
+
+
+def _acquire_model_lock(lock_path: Path) -> None:
+    deadline = time.time() + WHISPER_CPP_MODEL_LOCK_TIMEOUT_SECONDS
+    while True:
+        try:
+            lock_path.mkdir()
+            return
+        except FileExistsError:
+            try:
+                age_seconds = time.time() - lock_path.stat().st_mtime
+            except OSError:
+                age_seconds = 0
+            if age_seconds > WHISPER_CPP_MODEL_LOCK_STALE_SECONDS:
+                shutil.rmtree(lock_path, ignore_errors=True)
+                continue
+            if time.time() >= deadline:
+                raise TimeoutError(f"Timed out waiting for whisper.cpp model lock: {lock_path}")
+            time.sleep(WHISPER_CPP_MODEL_LOCK_POLL_SECONDS)
+
+
+def _release_model_lock(lock_path: Path) -> None:
+    shutil.rmtree(lock_path, ignore_errors=True)
 
 
 def resolve_model_identifier(model_id: str, download_root: str | None = None, backend: str = "faster-whisper") -> str:
@@ -97,22 +130,33 @@ def resolve_model_identifier(model_id: str, download_root: str | None = None, ba
     model_cache = _default_model_cache(download_root)
     model_cache.mkdir(parents=True, exist_ok=True)
     model_path = model_cache / f"ggml-{model_id}.bin"
-    if model_path.exists():
-        expected_sha = WHISPER_CPP_KNOWN_HASHES.get(model_id)
-        if expected_sha and _sha1(model_path) != expected_sha:
-            model_path.unlink()
-        else:
-            return str(model_path)
-
-    url = f"{WHISPER_CPP_MODEL_BASE_URL}/ggml-{model_id}.bin"
-    urllib.request.urlretrieve(url, model_path)
-
     expected_sha = WHISPER_CPP_KNOWN_HASHES.get(model_id)
-    if expected_sha and _sha1(model_path) != expected_sha:
-        model_path.unlink(missing_ok=True)
-        raise ValueError(f"Checksum verification failed for whisper.cpp model '{model_id}'")
+    lock_path = _model_lock_path(model_path)
+    _acquire_model_lock(lock_path)
 
-    return str(model_path)
+    temp_path: Path | None = None
+    try:
+        if model_path.exists():
+            if expected_sha and _sha1(model_path) != expected_sha:
+                model_path.unlink(missing_ok=True)
+            else:
+                return str(model_path)
+
+        url = f"{WHISPER_CPP_MODEL_BASE_URL}/ggml-{model_id}.bin"
+        temp_path = model_cache / f".{model_path.name}.tmp-{uuid.uuid4().hex}"
+        urllib.request.urlretrieve(url, temp_path)
+
+        if expected_sha and _sha1(temp_path) != expected_sha:
+            temp_path.unlink(missing_ok=True)
+            raise ValueError(f"Checksum verification failed for whisper.cpp model '{model_id}'")
+
+        os.replace(temp_path, model_path)
+        temp_path = None
+        return str(model_path)
+    finally:
+        if temp_path is not None:
+            temp_path.unlink(missing_ok=True)
+        _release_model_lock(lock_path)
 
 
 def resolve_coreml_encoder_path(

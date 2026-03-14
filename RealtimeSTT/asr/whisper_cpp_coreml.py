@@ -16,6 +16,7 @@ from pathlib import Path
 
 
 logger = logging.getLogger(__name__)
+COREML_CONVERSION_MODULE = "RealtimeSTT.asr.resources.whisper_cpp.convert_whisper_to_coreml"
 
 WHISPER_CPP_COREML_SUPPORTED_MODELS = {
     "tiny",
@@ -51,11 +52,6 @@ _schedule_lock = threading.Lock()
 
 def _running_on_apple_silicon() -> bool:
     return os.uname().sysname == "Darwin" and os.uname().machine == "arm64"
-
-
-def _convert_script_path() -> Path:
-    root_dir = Path(__file__).resolve().parents[2]
-    return root_dir / "third_party" / "whisper.cpp" / "models" / "convert-whisper-to-coreml.py"
 
 
 def _derive_model_name(model_identifier: str | None, model_path: str) -> str | None:
@@ -168,10 +164,10 @@ def _generate_coreml_encoder_sync(request: WhisperCppCoreMLRequest) -> None:
     target_path = Path(request.target_path)
     target_path.parent.mkdir(parents=True, exist_ok=True)
 
-    convert_script = _convert_script_path()
-    if not convert_script.exists():
+    if importlib.util.find_spec(COREML_CONVERSION_MODULE) is None:
         raise FileNotFoundError(
-            f"whisper.cpp Core ML conversion script is missing: {convert_script}"
+            "whisper.cpp Core ML conversion module is missing: "
+            f"{COREML_CONVERSION_MODULE}"
         )
     if shutil.which("xcrun") is None:
         raise FileNotFoundError("xcrun is required for whisper.cpp Core ML generation")
@@ -193,7 +189,8 @@ def _generate_coreml_encoder_sync(request: WhisperCppCoreMLRequest) -> None:
         _run_subprocess(
             [
                 sys.executable,
-                str(convert_script),
+                "-m",
+                COREML_CONVERSION_MODULE,
                 "--model",
                 request.model_name,
                 "--encoder-only",
