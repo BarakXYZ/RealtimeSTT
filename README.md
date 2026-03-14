@@ -34,7 +34,7 @@ https://github.com/user-attachments/assets/797e6552-27cd-41b1-a7f3-e5cbc72094f5
 
 ### Updates
 
-Latest Version: v0.3.104.post1
+Latest Version: v0.3.104.post2
 
 See [release history](https://github.com/BarakXYZ/RealtimeSTT/releases).
 

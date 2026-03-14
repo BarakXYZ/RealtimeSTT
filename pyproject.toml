@@ -7,7 +7,7 @@ build-backend = "scikit_build_core.build"
 
 [project]
 name = "realtimestt-xyz"
-version = "0.3.104.post1"
+version = "0.3.104.post2"
 description = "A fast Voice Activity Detection and Transcription System"
 readme = "README.md"
 requires-python = ">=3.9"

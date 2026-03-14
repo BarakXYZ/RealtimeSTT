@@ -37,7 +37,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-13, macos-14]
+        os: [ubuntu-latest, macos-14]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +77,7 @@ jobs:
   publish-pypi:
     needs: [sdist, wheels]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/')
+    if: startsWith(github.ref, 'refs/tags/') && vars.PUBLISH_PYPI == 'true'
     environment:
       name: pypi
       url: https://pypi.org/p/realtimestt-xyz
